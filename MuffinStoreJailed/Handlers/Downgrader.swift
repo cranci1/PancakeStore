@@ -228,8 +228,17 @@ func getAllAppVersionIdsFromServer(appId: String, ipaTool: IPATool) {
 }
 
 func downgradeApp(appId: String, ipaTool: IPATool) {
+    guard ipaTool.ensureAuthState() else {
+        let appData = AppData.shared
+        appData.isDowngrading = false
+        appData.applicationStatus = "Session expired. Please log in again."
+        appData.applicationIcon = "xmark.circle.fill"
+        appData.applicationIconColor = .red
+        showAlert(title: "Authentication Required", message: "Saved auth session is unavailable. Please log in again.")
+        return
+    }
+
     let versionIds = ipaTool.getVersionIDList(appId: appId)
-    var selectedVersion = ""
     let isiPad = UIDevice.current.userInterfaceIdiom == .pad
     
     let alert = UIAlertController(title: "Version ID", message: "Do you want to enter the version ID manually or request the list of version IDs from the server?", preferredStyle: isiPad ? .alert : .actionSheet)

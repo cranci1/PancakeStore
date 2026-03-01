@@ -136,7 +136,16 @@ struct ContentView: View {
 
                 appData.appleId = appleId
                 appData.password = password
-                appData.ipaTool = IPATool(appleId: appData.appleId, password: appData.password)
+                let ipaTool = IPATool(appleId: appData.appleId, password: appData.password)
+                if ipaTool.ensureAuthState() {
+                    appData.ipaTool = ipaTool
+                } else {
+                    appData.isAuthenticated = false
+                    appData.applicationStatus = "Session expired. Please log in again."
+                    appData.applicationIcon = "xmark.circle.fill"
+                    appData.applicationIconColor = .red
+                    appData.ipaTool = nil
+                }
             } else {
                 appData.isAuthenticated = false
                 print("No auth info found in keychain")

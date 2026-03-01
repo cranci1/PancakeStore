@@ -247,15 +247,23 @@ class StoreClient {
     }
 
     func volumeStoreDownloadProduct(appId: String, appVerId: String = "") -> [String: Any] {
+        guard let guid = self.guid,
+              let pod = self.pod,
+              let authHeaders = self.authHeaders,
+              let authCookies = self.authCookies else {
+            print("cannot call volumeStoreDownloadProduct: missing auth state")
+            return [:]
+        }
+
         var req = [
             "creditDisplay": "",
-            "guid": self.guid!,
+            "guid": guid,
             "salableAdamId": appId,
         ]
         if appVerId != "" {
             req["externalVersionId"] = appVerId
         }
-        let url = URL(string: "https://p\(pod!)-buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/volumeStoreDownloadProduct?guid=\(self.guid!)")!
+        let url = URL(string: "https://p\(pod)-buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/volumeStoreDownloadProduct?guid=\(guid)")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.allHTTPHeaderFields = [
@@ -264,12 +272,12 @@ class StoreClient {
         ]
         request.httpBody = try! JSONSerialization.data(withJSONObject: req, options: [])
         print("Setting headers")
-        for (key, value) in self.authHeaders! {
+        for (key, value) in authHeaders {
             print("Setting header \(key): \(value)")
             request.addValue(value, forHTTPHeaderField: key)
         }
         print("Setting cookies")
-        self.session.configuration.httpCookieStorage?.setCookies(self.authCookies!, for: url, mainDocumentURL: nil)
+        self.session.configuration.httpCookieStorage?.setCookies(authCookies, for: url, mainDocumentURL: nil)
 
         var resp = [String: Any]()
         let datatask = session.dataTask(with: request) { (data, response, error) in
@@ -347,6 +355,10 @@ class IPATool {
         } else {
             return true
         }
+    }
+
+    func ensureAuthState() -> Bool {
+        return storeClient.tryLoadAuthInfo()
     }
 
     func getVersionIDList(appId: String) -> [String] {
