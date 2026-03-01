@@ -119,25 +119,27 @@ struct ContentView: View {
             SettingsView()
         }
         .onAppear {
-            appData.isAuthenticated = EncryptedKeychainWrapper.hasAuthInfo()
-            print("Found \(appData.isAuthenticated ? "auth" : "no auth") info in keychain")
-            if appData.isAuthenticated {
+            if let authInfo = EncryptedKeychainWrapper.getAuthInfo() {
+                appData.isAuthenticated = true
+                print("Found auth info in keychain")
                 appData.applicationStatus = "Ready to Downgrade!"
                 appData.applicationIcon = "checkmark.circle.fill"
                 appData.applicationIconColor = .primary
-                guard let authInfo = EncryptedKeychainWrapper.getAuthInfo() else {
-                    print("Failed to get auth info from keychain, logging out")
+
+                guard let appleId = authInfo["appleId"] as? String,
+                      let password = authInfo["password"] as? String else {
+                    print("Auth info is invalid, logging out")
                     appData.isAuthenticated = false
                     EncryptedKeychainWrapper.nuke()
                     EncryptedKeychainWrapper.generateAndStoreKey()
                     return
                 }
-                appData.appleId = authInfo["appleId"]! as! String
-                appData.password = authInfo["password"]! as! String
+
+                appData.appleId = appleId
+                appData.password = password
                 appData.ipaTool = IPATool(appleId: appData.appleId, password: appData.password)
-                let ret = appData.ipaTool?.authenticate()
-                print("Re-authenticated \(ret! ? "successfully" : "unsuccessfully")")
             } else {
+                appData.isAuthenticated = false
                 print("No auth info found in keychain, setting up by generating a key in SEP")
                 EncryptedKeychainWrapper.generateAndStoreKey()
             }
