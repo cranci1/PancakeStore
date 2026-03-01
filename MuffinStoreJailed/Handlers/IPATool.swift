@@ -351,41 +351,50 @@ class IPATool {
 
     func getVersionIDList(appId: String) -> [String] {
         print("Retrieving download info for appId \(appId)")
-        var downResp = storeClient.download(appId: appId, isRedownload: true)
-        var songList = downResp["songList"] as! [[String: Any]]
-        if songList.count == 0 {
+        let downResp = storeClient.download(appId: appId, isRedownload: true)
+        guard let songList = downResp["songList"] as? [[String: Any]], !songList.isEmpty else {
             print("Failed to get app download info!")
             return []
         }
-        var downInfo = songList[0]
-        var metadata = downInfo["metadata"] as! [String: Any]
-        var appVerIds = metadata["softwareVersionExternalIdentifiers"] as! [Int]
+        let downInfo = songList[0]
+        guard let metadata = downInfo["metadata"] as? [String: Any],
+              let appVerIds = metadata["softwareVersionExternalIdentifiers"] as? [Int] else {
+            print("Failed to parse app version identifiers")
+            return []
+        }
         print("Got available version ids \(appVerIds)")
         return appVerIds.map { String($0) }
     }
 
     func downloadIPAForVersion(appId: String, appVerId: String) -> String {
         print("Downloading IPA for app \(appId) version \(appVerId)")
-        var downResp = storeClient.download(appId: appId, appVer: appVerId)
-        var songList = downResp["songList"] as! [[String: Any]]
-        if songList.count == 0 {
+        let downResp = storeClient.download(appId: appId, appVer: appVerId)
+        guard let songList = downResp["songList"] as? [[String: Any]], !songList.isEmpty else {
             print("Failed to get app download info!")
             return ""
         }
-        var downInfo = songList[0]
-        var url = downInfo["URL"] as! String
+        let downInfo = songList[0]
+        guard let url = downInfo["URL"] as? String else {
+            print("Download URL missing in response")
+            return ""
+        }
         print("Got download URL: \(url)")
-        var fm = FileManager.default
-        var tempDir = fm.temporaryDirectory
-        var path = tempDir.appendingPathComponent("app.ipa").path
+        let fm = FileManager.default
+        let tempDir = fm.temporaryDirectory
+        let path = tempDir.appendingPathComponent("app.ipa").path
         if fm.fileExists(atPath: path) {
             print("Removing existing file at \(path)")
-            try! fm.removeItem(atPath: path)
+            do {
+                try fm.removeItem(atPath: path)
+            } catch {
+                print("Failed to remove existing IPA: \(error)")
+                return ""
+            }
         }
         storeClient.downloadToPath(url: url, path: path)
         Zip.addCustomFileExtension("ipa")
         sleep(3)
-        let path3 = URL(string: path)!
+        let path3 = URL(fileURLWithPath: path)
         let fileExtension = path3.pathExtension
         let fileName = path3.lastPathComponent
         let directoryName = fileName.replacingOccurrences(of: ".\(fileExtension)", with: "")
@@ -393,15 +402,32 @@ class IPATool {
         let destinationUrl = documentsUrl.appendingPathComponent(directoryName, isDirectory: true)
         if fm.fileExists(atPath: destinationUrl.path) {
             print("Removing existing folder at \(destinationUrl.path)")
-            try! fm.removeItem(at: destinationUrl)
+            do {
+                try fm.removeItem(at: destinationUrl)
+            } catch {
+                print("Failed to remove existing extraction folder: \(error)")
+                return ""
+            }
         }
         
-        let unzipDirectory = try! Zip.quickUnzipFile(URL(string: path)!)
-        var metadata = downInfo["metadata"] as! [String: Any]
-        var metadataPath = unzipDirectory.appendingPathComponent("iTunesMetadata.plist").path
+        let unzipDirectory: URL
+        do {
+            unzipDirectory = try Zip.quickUnzipFile(URL(fileURLWithPath: path))
+        } catch {
+            print("Failed to unzip IPA: \(error)")
+            return ""
+        }
+        guard var metadata = downInfo["metadata"] as? [String: Any] else {
+            print("Download metadata missing")
+            return ""
+        }
+        let metadataPath = unzipDirectory.appendingPathComponent("iTunesMetadata.plist").path
         metadata["apple-id"] = appleId
         metadata["userName"] = appleId
-        try! (metadata as NSDictionary).write(toFile: metadataPath, atomically: true)
+        if !(metadata as NSDictionary).write(toFile: metadataPath, atomically: true) {
+            print("Failed to write iTunesMetadata.plist")
+            return ""
+        }
         print("Wrote iTunesMetadata.plist")
         var appContentDir = ""
         let payloadDir = unzipDirectory.appendingPathComponent("Payload")
@@ -413,22 +439,44 @@ class IPATool {
             }
         }
         print("Found app content dir: \(appContentDir)")
-        var scManifestData = try! Data(contentsOf: unzipDirectory.appendingPathComponent(appContentDir).appendingPathComponent("SC_Info").appendingPathComponent("Manifest.plist"))
-        var scManifest = try! PropertyListSerialization.propertyList(from: scManifestData, options: [], format: nil) as! [String: Any]
-        var sinfsDict = downInfo["sinfs"] as! [[String: Any]]
-        if let sinfPaths = scManifest["SinfPaths"] as? [String] {
+        guard let sinfsDict = downInfo["sinfs"] as? [[String: Any]], !sinfsDict.isEmpty else {
+            print("SINF payload missing in download response")
+            return ""
+        }
+
+        let manifestPath = unzipDirectory.appendingPathComponent(appContentDir).appendingPathComponent("SC_Info").appendingPathComponent("Manifest.plist")
+        if let scManifestData = try? Data(contentsOf: manifestPath),
+           let scManifest = try? PropertyListSerialization.propertyList(from: scManifestData, options: [], format: nil) as? [String: Any],
+           let sinfPaths = scManifest["SinfPaths"] as? [String] {
             for (i, sinfPath) in sinfPaths.enumerated() {
-                let sinfData = sinfsDict[i]["sinf"] as! Data
-                try! sinfData.write(to: unzipDirectory.appendingPathComponent(appContentDir).appendingPathComponent(sinfPath))
+                guard i < sinfsDict.count, let sinfData = sinfsDict[i]["sinf"] as? Data else {
+                    print("Invalid SINF data for index \(i)")
+                    return ""
+                }
+                do {
+                    try sinfData.write(to: unzipDirectory.appendingPathComponent(appContentDir).appendingPathComponent(sinfPath))
+                } catch {
+                    print("Failed writing SINF path \(sinfPath): \(error)")
+                    return ""
+                }
                 print("Wrote sinf to \(sinfPath)")
             }
         } else {
             print("Manifest.plist does not exist! Assuming it is an old app without one...")
-            var infoListData = try! Data(contentsOf: unzipDirectory.appendingPathComponent(appContentDir).appendingPathComponent("Info.plist"))
-            var infoList = try! PropertyListSerialization.propertyList(from: infoListData, options: [], format: nil) as! [String: Any]
-            var sinfPath = appContentDir + "/SC_Info/" + (infoList["CFBundleExecutable"] as! String) + ".sinf"
-            let sinfData = sinfsDict[0]["sinf"] as! Data
-            try! sinfData.write(to: unzipDirectory.appendingPathComponent(sinfPath))
+            guard let infoListData = try? Data(contentsOf: unzipDirectory.appendingPathComponent(appContentDir).appendingPathComponent("Info.plist")),
+                  let infoList = try? PropertyListSerialization.propertyList(from: infoListData, options: [], format: nil) as? [String: Any],
+                  let executable = infoList["CFBundleExecutable"] as? String,
+                  let sinfData = sinfsDict[0]["sinf"] as? Data else {
+                print("Failed to derive fallback SINF path")
+                return ""
+            }
+            let sinfPath = appContentDir + "/SC_Info/" + executable + ".sinf"
+            do {
+                try sinfData.write(to: unzipDirectory.appendingPathComponent(sinfPath))
+            } catch {
+                print("Failed writing fallback SINF: \(error)")
+                return ""
+            }
             print("Wrote sinf to \(sinfPath)")
         }
         print("Downloaded IPA to \(unzipDirectory.path)")

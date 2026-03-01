@@ -74,6 +74,10 @@ struct BottomBar: View {
                             if appData.appLink.isEmpty {
                                 return
                             }
+                            guard let ipaTool = appData.ipaTool else {
+                                Alertinator.shared.alert(title: "Not authenticated", body: "Please log in again before downgrading.")
+                                return
+                            }
                             var appLinkParsed = appData.appLink
                             appLinkParsed = appLinkParsed.components(separatedBy: "id").last ?? ""
                             for char in appLinkParsed {
@@ -82,9 +86,13 @@ struct BottomBar: View {
                                     break
                                 }
                             }
+                            if appLinkParsed.isEmpty {
+                                Alertinator.shared.alert(title: "Invalid App Store Link", body: "Paste a full App Store URL that includes an app id.")
+                                return
+                            }
                             print("App ID: \(appLinkParsed)")
                             appData.isDowngrading = true
-                            downgradeApp(appId: appLinkParsed, ipaTool: appData.ipaTool!)
+                            downgradeApp(appId: appLinkParsed, ipaTool: ipaTool)
                             appData.applicationStatus = "Downgrading Application..."
                             appData.applicationIcon = "showMeProgressPlease"
                         }

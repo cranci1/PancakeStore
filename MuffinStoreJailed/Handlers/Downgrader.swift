@@ -27,27 +27,86 @@ func downgradeAppToVersion(appId: String, versionId: String, ipaTool: IPATool) {
     @ObservedObject var appData = AppData.shared
     
     let path = ipaTool.downloadIPAForVersion(appId: appId, appVerId: versionId)
+    if path.isEmpty {
+        DispatchQueue.main.async {
+            appData.isDowngrading = false
+            appData.applicationStatus = "Failed to download/decrypt IPA"
+            appData.applicationIcon = "xmark.circle.fill"
+            appData.applicationIconColor = .red
+            showAlert(title: "Downgrade Failed", message: "Could not fetch IPA for this app/version. Make sure the app was previously downloaded on this Apple ID.")
+        }
+        return
+    }
     print("IPA downloaded to \(path)")
     
     let tempDir = FileManager.default.temporaryDirectory
-    var contents = try! FileManager.default.contentsOfDirectory(atPath: path)
+    guard let contents = try? FileManager.default.contentsOfDirectory(atPath: path), !contents.isEmpty else {
+        DispatchQueue.main.async {
+            appData.isDowngrading = false
+            appData.applicationStatus = "Failed to package IPA"
+            appData.applicationIcon = "xmark.circle.fill"
+            appData.applicationIconColor = .red
+            showAlert(title: "Downgrade Failed", message: "Downloaded app payload is missing or invalid.")
+        }
+        return
+    }
     print("Contents: \(contents)")
     let destinationUrl = tempDir.appendingPathComponent("app.ipa")
-    try! Zip.zipFiles(paths: contents.map { URL(fileURLWithPath: path).appendingPathComponent($0) }, zipFilePath: destinationUrl, password: nil, progress: nil)
+    do {
+        try Zip.zipFiles(paths: contents.map { URL(fileURLWithPath: path).appendingPathComponent($0) }, zipFilePath: destinationUrl, password: nil, progress: nil)
+    } catch {
+        DispatchQueue.main.async {
+            appData.isDowngrading = false
+            appData.applicationStatus = "Failed to build signed IPA"
+            appData.applicationIcon = "xmark.circle.fill"
+            appData.applicationIconColor = .red
+            showAlert(title: "Downgrade Failed", message: "Unable to package downgraded IPA: \(error.localizedDescription)")
+        }
+        return
+    }
     print("IPA zipped to \(destinationUrl)")
     let path2 = URL(fileURLWithPath: path)
     var appDir = path2.appendingPathComponent("Payload")
-    for file in try! FileManager.default.contentsOfDirectory(atPath: appDir.path) {
+    guard let payloadContents = try? FileManager.default.contentsOfDirectory(atPath: appDir.path) else {
+        DispatchQueue.main.async {
+            appData.isDowngrading = false
+            appData.applicationStatus = "Invalid payload structure"
+            appData.applicationIcon = "xmark.circle.fill"
+            appData.applicationIconColor = .red
+            showAlert(title: "Downgrade Failed", message: "IPA payload is missing.")
+        }
+        return
+    }
+    for file in payloadContents {
         if file.hasSuffix(".app") {
             print("Found app: \(file)")
             appDir = appDir.appendingPathComponent(file)
             break
         }
     }
+    if !appDir.path.hasSuffix(".app") {
+        DispatchQueue.main.async {
+            appData.isDowngrading = false
+            appData.applicationStatus = "Invalid app bundle"
+            appData.applicationIcon = "xmark.circle.fill"
+            appData.applicationIconColor = .red
+            showAlert(title: "Downgrade Failed", message: "Could not locate the app bundle inside IPA payload.")
+        }
+        return
+    }
     let infoPlistPath = appDir.appendingPathComponent("Info.plist")
-    let infoPlist = NSDictionary(contentsOf: infoPlistPath)!
-    let appBundleId = infoPlist["CFBundleIdentifier"] as! String
-    let appVersion = infoPlist["CFBundleShortVersionString"] as! String
+    guard let infoPlist = NSDictionary(contentsOf: infoPlistPath),
+          let appBundleId = infoPlist["CFBundleIdentifier"] as? String,
+          let appVersion = infoPlist["CFBundleShortVersionString"] as? String else {
+        DispatchQueue.main.async {
+            appData.isDowngrading = false
+            appData.applicationStatus = "Invalid app metadata"
+            appData.applicationIcon = "xmark.circle.fill"
+            appData.applicationIconColor = .red
+            showAlert(title: "Downgrade Failed", message: "Could not read app metadata from Info.plist.")
+        }
+        return
+    }
     print("appBundleId: \(appBundleId)")
     print("appVersion: \(appVersion)")
 
@@ -62,7 +121,9 @@ func downgradeAppToVersion(appId: String, versionId: String, ipaTool: IPATool) {
 
         server.route(.GET, "signed.ipa", { _ in
             print("Serving signed.ipa")
-            let signedIPAData = try Data(contentsOf: destinationUrl)
+            guard let signedIPAData = try? Data(contentsOf: destinationUrl) else {
+                return HTTPResponse(.internalServerError)
+            }
             return HTTPResponse(body: signedIPAData)
         })
 
@@ -80,7 +141,18 @@ func downgradeAppToVersion(appId: String, versionId: String, ipaTool: IPATool) {
             return HTTPResponse(.ok, headers: ["Content-Type": "text/html"], content: installPage)
         })
         
-        try! server.start(port: 9090)
+        do {
+            try server.start(port: 9090)
+        } catch {
+            DispatchQueue.main.async {
+                appData.isDowngrading = false
+                appData.applicationStatus = "Failed to start install server"
+                appData.applicationIcon = "xmark.circle.fill"
+                appData.applicationIconColor = .red
+                showAlert(title: "Downgrade Failed", message: "Could not start local install server on port 9090. Try closing other sideload apps and retry.")
+            }
+            return
+        }
         print("Server has started listening")
         
         DispatchQueue.main.async {
