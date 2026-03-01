@@ -131,7 +131,6 @@ struct ContentView: View {
                     print("Auth info is invalid, logging out")
                     appData.isAuthenticated = false
                     EncryptedKeychainWrapper.nuke()
-                    EncryptedKeychainWrapper.generateAndStoreKey()
                     return
                 }
 
@@ -140,8 +139,7 @@ struct ContentView: View {
                 appData.ipaTool = IPATool(appleId: appData.appleId, password: appData.password)
             } else {
                 appData.isAuthenticated = false
-                print("No auth info found in keychain, setting up by generating a key in SEP")
-                EncryptedKeychainWrapper.generateAndStoreKey()
+                print("No auth info found in keychain")
             }
         }
     }

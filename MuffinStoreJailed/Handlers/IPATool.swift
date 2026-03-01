@@ -437,6 +437,15 @@ class IPATool {
 }
 
 class EncryptedKeychainWrapper {
+    static func hasKey() -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassKey,
+            kSecAttrApplicationTag as String: "dev.mineek.muffinstorejailed.key"
+        ]
+        let status = SecItemCopyMatching(query as CFDictionary, nil)
+        return status == errSecSuccess
+    }
+
     static func generateAndStoreKey() -> Void {
         self.deleteKey()
         print("Generating key")
@@ -479,6 +488,10 @@ class EncryptedKeychainWrapper {
     }
 
     static func saveAuthInfo(base64: String) -> Void {
+        if !hasKey() {
+            generateAndStoreKey()
+        }
+
         let fm = FileManager.default
         let query: [String: Any] = [
             kSecClass as String: kSecClassKey,
@@ -542,7 +555,9 @@ class EncryptedKeychainWrapper {
     static func deleteAuthInfo() -> Void {
         let fm = FileManager.default
         let path = fm.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("authinfo").path
-        try! fm.removeItem(atPath: path)
+        if fm.fileExists(atPath: path) {
+            try? fm.removeItem(atPath: path)
+        }
     }
 
     static func hasAuthInfo() -> Bool {

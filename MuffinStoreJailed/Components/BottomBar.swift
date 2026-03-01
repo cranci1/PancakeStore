@@ -98,7 +98,6 @@ struct BottomBar: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                             appData.isAuthenticated = false
                             EncryptedKeychainWrapper.nuke()
-                            EncryptedKeychainWrapper.generateAndStoreKey()
                             sleep(3)
                             exitinator()
                         }

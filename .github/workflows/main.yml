@@ -9,12 +9,15 @@ jobs:
   build:
     runs-on: macos-15
     steps:
-     - uses: actions/checkout@v3
-     - name: Compile
-       run: make
-     
-     - name: Upload artifact
-       uses: actions/upload-artifact@v4
-       with:
-        name: MuffinStoreJailed
-        path: MuffinStoreJailed.ipa
+      - uses: actions/checkout@v4
+
+      - name: Build IPA
+        run: |
+          chmod +x ./ipabuild.sh
+          ./ipabuild.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PancakeStore
+          path: PancakeStore.ipa
