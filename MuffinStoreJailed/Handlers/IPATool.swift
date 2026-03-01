@@ -357,7 +357,51 @@ class IPATool {
         }
     }
 
+    func hasAuthState() -> Bool {
+        return storeClient.guid != nil
+            && storeClient.pod != nil
+            && storeClient.authHeaders != nil
+            && storeClient.authCookies != nil
+    }
+
+    func restoreAuthState(from authInfo: [String: Any]) -> Bool {
+        if let appleId = authInfo["appleId"] as? String {
+            self.appleId = appleId
+            storeClient.appleId = appleId
+        }
+        if let password = authInfo["password"] as? String {
+            self.password = password
+            storeClient.password = password
+        }
+
+        storeClient.guid = authInfo["guid"] as? String
+        storeClient.accountName = authInfo["accountName"] as? String
+        storeClient.pod = authInfo["pod"] as? String
+
+        if let headers = authInfo["authHeaders"] as? [String: String] {
+            storeClient.authHeaders = headers
+        } else if let headersAny = authInfo["authHeaders"] as? [String: Any] {
+            var normalizedHeaders: [String: String] = [:]
+            for (key, value) in headersAny {
+                if let stringValue = value as? String {
+                    normalizedHeaders[key] = stringValue
+                }
+            }
+            storeClient.authHeaders = normalizedHeaders.isEmpty ? nil : normalizedHeaders
+        }
+
+        if let authCookiesEnc = authInfo["authCookies"] as? String,
+           let authCookiesData = Data(base64Encoded: authCookiesEnc) {
+            storeClient.authCookies = NSKeyedUnarchiver.unarchiveObject(with: authCookiesData) as? [HTTPCookie]
+        }
+
+        return hasAuthState()
+    }
+
     func ensureAuthState() -> Bool {
+        if hasAuthState() {
+            return true
+        }
         return storeClient.tryLoadAuthInfo()
     }
 
@@ -618,10 +662,6 @@ class EncryptedKeychainWrapper {
         if fm.fileExists(atPath: path) {
             try? fm.removeItem(atPath: path)
         }
-    }
-
-    static func hasAuthInfo() -> Bool {
-        return loadAuthInfo() != nil
     }
 
     static func getAuthInfo() -> [String: Any]? {

@@ -137,7 +137,7 @@ struct ContentView: View {
                 appData.appleId = appleId
                 appData.password = password
                 let ipaTool = IPATool(appleId: appData.appleId, password: appData.password)
-                if ipaTool.ensureAuthState() {
+                if ipaTool.restoreAuthState(from: authInfo) {
                     appData.ipaTool = ipaTool
                 } else {
                     appData.isAuthenticated = false
